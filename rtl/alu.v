@@ -6,11 +6,11 @@ module alu(
     input wire [2:0] op,
     output reg [15:0] result,
     output wire zero,
-    output wire sign
+    output wire lt
     );
     
     assign zero = (result == 0);
-    assign sign = result[15];
+    assign lt = (a[15] == b[15]) ? result[15] : a[15]; 
     
     always @(*) begin
         case(op)

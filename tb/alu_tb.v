@@ -5,10 +5,10 @@ module alu_tb();
     reg [15:0] b;
     reg [2:0] op;
     wire zero;
-    wire sign;
+    wire lt;
     wire [15:0] result;
     
-    alu dut1(.a(a), .b(b), .op(op), .zero(zero), .sign(sign), .result(result));
+    alu dut1(.a(a), .b(b), .op(op), .zero(zero), .lt(lt), .result(result));
     
     initial begin
         a = 16'h3C5A; b = 16'h0F34; op = 3'b000;
@@ -38,6 +38,12 @@ module alu_tb();
         op = 3'b110;
         #10
         a = 16'h3C5F; b = 16'h000F;
+        #10
+        a = 16'hFFFE; b = 16'hFFFF; op = 3'b001;
+        #10
+        a = 16'h8000; b = 16'h0001;
+        #10
+        a = 16'h0001; b = 16'h8000;
         #10
         $finish;
     end
