@@ -22,32 +22,22 @@ Learning FPGA design from zero, one rung at a time. Every phase has a gate that 
 - Phase 0 — Toolchain + flash pipeline ✅ (2026-07-29 — blink running on hardware)
 - Phase 1 — HDL fundamentals, simulation-first ✅ (2026-08-01 — blocks simulated, mux confirmed on hardware)
 - Phase 2 — ISA + datapath on paper, no RTL ✅ (2026-08-02 — 16 instructions, datapath drawn)
-- Phase 3 — Datapath blocks, each with its own testbench ⬜
+- Phase 3 — Datapath blocks, each with its own testbench ✅ (2026-08-06 — six blocks, six testbenches)
 - Phase 4 — Control unit + single-cycle integration ⬜
 - Phase 5 — On-hardware bring-up, state observable over UART ⬜
 - Phase 6 — Python assembler, demo program ⬜
 
-Locked so far: single-cycle before anything else (pipelining is explicitly out of scope for now), Harvard memory model on block RAM, 8 registers, 16 instructions across four formats.
+Locked so far: single-cycle before anything else (pipelining is explicitly out of scope for now), Harvard memory model, 8 registers, 16 instructions across four formats.
 
 ## Phase 1 — Simulation
 
-A 2:1 mux, an 8-bit register with synchronous reset and clock enable, a 2→4 decoder, and an 8-bit ALU. Each one written, testbenched, and read in the waveform viewer before anything reached the board.
+A 2:1 mux, an 8-bit register, a 2→4 decoder, and an 8-bit ALU, each testbenched and read in the waveform viewer before anything reached the board.
 
-The mux is built twice — once with `assign`, once with `always @(*)` — and its testbench instantiates both against shared stimulus. Identical outputs across all eight input combinations, which makes "the two styles synthesize to the same hardware" something measured here rather than taken on faith.
-
-Choosing test operands turned out to be the real skill. Driving the ALU with `a=08, b=08` makes AND and OR return the same value, so a swapped opcode would look correct; fix that with `a=08, b=04` and `a+b` collides with `a|b` instead, because operands sharing no bits generate no carries. A testbench that can't tell a right answer from a wrong one passes either way.
+Choosing test operands turned out to be the real skill. Driving the ALU with `a=08, b=08` makes AND and OR return the same value; fix that with `a=08, b=04` and `a+b` collides with `a|b` instead, because operands sharing no bits generate no carries. A testbench that can't tell a right answer from a wrong one passes either way — which became the theme of the whole project.
 
 ## Phase 2 — Instruction Set
 
-Sixteen bits doesn't leave much room, so most of the ISA decided itself.
-
-Register count went first. Sixteen registers need 4-bit fields, three per instruction, leaving 4 bits of opcode — exactly 16 patterns for a target of 16–25 instructions. The encoding is full before anything gets named. So: 8 registers, 3 bits each.
-
-Opcode width was the real corner. Five bits allows 32 instructions but shrinks the immediate to ±16, which hurts as a load offset. Three bits allows only 8 instructions. Neither works. But an R-type only uses 13 of its 16 bits — opcode plus three register names — so three bits sit idle on every arithmetic instruction. Hand those three bits the job of picking *which* ALU operation and all eight arithmetic ops share one opcode, which frees 15 opcodes and keeps the wide immediate. It's MIPS's funct field; I got there by staring at the unused bits.
-
-Constants have the same problem. `addi` reaches ±32 and registers hold 16 bits. An instruction naming only a destination costs 7 bits and leaves 9 — one as a high/low selector, eight left, exactly a byte. Two of them build any 16-bit value. The usual answer is two opcodes, `lui` and `lli`; putting the selector inside the instruction costs one, and a byte split has no use for a ninth bit anyway.
-
-No hardwired zero register. With 8 registers, storage is scarce and opcodes aren't, so spending a register to save encoding space is the wrong trade. `mov` is `or rd, rs, rs`, `nop` is `or r7, r7, r7`, negate is `not` then `addi rd, rd, 1`.
+Sixteen bits doesn't leave much room, so most of the ISA decided itself. Sixteen registers would need 4-bit fields three times over, leaving exactly 16 opcodes — full before a single instruction is named — so 8 registers. Opcode width was the real corner: five bits shrinks the immediate to ±16, three bits allows only 8 instructions, and neither works. But an R-type uses only 13 of its 16 bits, so three sit idle on every arithmetic instruction. Handing those three the job of picking *which* ALU operation puts all eight under one opcode, freeing 15 patterns and keeping the wide immediate. It's MIPS's funct field; I got there by staring at the unused bits.
 
 ```
 R:  op(4)  rd(3)  rs(3)  rt(3)  funct(3)     add sub and or xor not shl shr
@@ -56,24 +46,29 @@ J:  op(4)  addr(12)                          j
 LI: op(4)  rd(3)  sel(1) imm8(8)             li
 ```
 
-Drawing the datapath is what audits the encoding. `rd` sits at bits 11–9 and `rs` at bits 8–6 in every format that uses them, so those wires run straight to the register file with no mux in between — two muxes that never had to be built. The six left over are ALU input B, ALU operation, write-back source, second read address, next PC, and the byte splice in `li`. That list is the whole job of the control unit.
-
 ![Datapath](docs/CPU_Architecture.png)
 
-The ALU operation mux is the one I missed on the first pass. Wiring `funct` straight to the ALU works until an instruction has no funct field — `addi r1, r2, 5` leaves the immediate's low bits sitting on those wires, and the CPU quietly executes whichever operation the constant happens to spell. Change the constant and you change the operation. There is no default in hardware: three wires carry three bits every cycle, so the decoder has to drive them for everything that isn't R-type.
+Drawing the datapath is what audits the encoding. `rd` and `rs` sit at the same bits in every format that uses them, so those wires run straight to the register file — two muxes that never had to be built. The five left over are the control unit's entire job, and one of them I missed on the first pass: wiring `funct` straight to the ALU works until an instruction has no funct field, and then `addi r1, r2, 5` leaves the immediate's low bits on those wires and the CPU quietly executes whatever the constant spells. There is no default in hardware.
 
-The register file resets to zero at power-on. The flip-flops have a reset input whether it's used or not, so it costs nothing, and it halves the price of small constants — `li rd, lo, n` stands alone instead of always needing its high half too.
+## Phase 3 — Datapath Blocks
+
+Six blocks in `rtl/` with a testbench each in `tb/` — ALU, sign extender, register file, PC, instruction memory, data memory. No top-level module yet; that's Phase 4.
+
+Verilog doesn't reject a width mistake, it truncates. Writing the ALU's case labels as `2'b000` through `2'b111` — a 2-bit size on 3-bit values — collapsed eight cases onto four, leaving xor, not and both shifts unreachable. Half the ALU was dead, and it elaborated with no error and no warning.
+
+The habit that caught the rest was predicting every waveform value before running the simulation. Two finds justify it: the PC's adders were written inside the clocked block, which stores instead of computes, so the PC would have advanced once every two clocks and run every instruction twice — and the first data-memory testbench wrote one address, moved on, and never came back, meaning a memory with no address decoding at all would have passed it.
 
 ## Repo Structure
 
 ```
 fpga-16bit-cpu/
+├── rtl/               # CPU source
+├── tb/                # Testbenches
+├── programs/          # Hand-assembled programs
 ├── phase0-blink/      # First working bitstream
-├── phase1-sim/        # HDL blocks + their testbenches
-│   ├── src/
-│   └── tb/
+├── phase1-sim/        # Early HDL exercises
 ├── constraints/       # Digilent Basys 3 master XDC
-└── docs/              # Datapath diagram, ISA data sheet
+└── docs/              # Datapath diagram, ISA + port map data sheet
 ```
 
 Vivado project directories are gitignored — they're regenerated by synthesis and accounted for 98% of the Phase 0 project's size. Only sources and constraints are tracked.
