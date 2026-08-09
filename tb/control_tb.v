@@ -4,8 +4,15 @@ module control_tb();
     reg [3:0] opcode;
     wire [2:0] aluop;
     wire aluopsel;
+    wire alubsel;
+    wire [1:0] wbsel;
+    wire addr2sel;
+    wire [1:0] branchtype;
+    wire jump;
+    wire regwrite;
+    wire memwrite;
     
-    control dut(.opcode(opcode), .aluop(aluop), .aluopsel(aluopsel));
+    control dut(.opcode(opcode), .aluop(aluop), .aluopsel(aluopsel), .alubsel(alubsel), .wbsel(wbsel), .addr2sel(addr2sel), .branchtype(branchtype), .jump(jump), .regwrite(regwrite), .memwrite(memwrite));
     
     initial begin
     opcode = 4'b0000;
