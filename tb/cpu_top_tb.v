@@ -14,7 +14,7 @@ module cpu_top_tb();
         rst = 1;
         #20
         rst = 0;
-        #100
+        #400
         $finish;
     end
 endmodule
