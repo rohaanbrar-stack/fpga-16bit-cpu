@@ -23,7 +23,7 @@ Learning FPGA design from zero, one rung at a time. Every phase has a gate that 
 - Phase 1 — HDL fundamentals, simulation-first ✅ (2026-08-01 — blocks simulated, mux confirmed on hardware)
 - Phase 2 — ISA + datapath on paper, no RTL ✅ (2026-08-02 — 16 instructions, datapath drawn)
 - Phase 3 — Datapath blocks, each with its own testbench ✅ (2026-08-06 — six blocks, six testbenches)
-- Phase 4 — Control unit + single-cycle integration ⬜
+- Phase 4 — Control unit + single-cycle integration ✅ (2026-08-09 — CPU runs programs in simulation)
 - Phase 5 — On-hardware bring-up, state observable over UART ⬜
 - Phase 6 — Python assembler, demo program ⬜
 
@@ -57,6 +57,14 @@ Six blocks in `rtl/` with a testbench each in `tb/` — ALU, sign extender, regi
 Verilog doesn't reject a width mistake, it truncates. Writing the ALU's case labels as `2'b000` through `2'b111` — a 2-bit size on 3-bit values — collapsed eight cases onto four, leaving xor, not and both shifts unreachable. Half the ALU was dead, and it elaborated with no error and no warning.
 
 The habit that caught the rest was predicting every waveform value before running the simulation. Two finds justify it: the PC's adders were written inside the clocked block, which stores instead of computes, so the PC would have advanced once every two clocks and run every instruction twice — and the first data-memory testbench wrote one address, moved on, and never came back, meaning a memory with no address decoding at all would have passed it.
+
+## Phase 4 — Control Unit + Integration
+
+The decoder, a top-level module wiring all seven blocks and four muxes, and four hand-assembled test programs — arithmetic, memory, control flow, and a sum loop. `cpu_top` holds no state and makes no decisions; every `reg` in the finished design sits inside a block that was gated on its own.
+
+The synthesis check was worth nothing for most of a day. It asks for zero inferred latches, and a top module whose outputs go nowhere synthesizes to nothing at all — zero LUTs, zero flip-flops, therefore zero latches, reported as a clean pass on an empty design. The fix is to expose a signal sitting downstream of everything, so the machine has to exist in order to produce it. Even then the count came back at 51 flip-flops against a hand-derived 144, because the program is baked into the ROM at synthesis time and the tools constant-fold straight through it — nothing in that program writes data memory, so the entire 256-word array was deleted.
+
+The last test program wrote the project's theme one more time. The first version of the sum loop ran until the running total reached 55 and then stopped, which makes the answer the exit condition: a broken adder could only ever have caused a hang, never a wrong number. Exiting on the loop counter instead leaves the total free to be wrong.
 
 ## Repo Structure
 
