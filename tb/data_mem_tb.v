@@ -5,14 +5,15 @@ module data_mem_tb();
     reg [15:0] addr;
     reg enablew;
     reg clk = 0;
+    reg [15:0] sw;
     wire [15:0] dataout;
     
     always #5 clk = ~clk;
     
-    data_mem dut(.dataw(dataw), .addr(addr), .enablew(enablew), .clk(clk), .dataout(dataout));
+    data_mem dut(.dataw(dataw), .addr(addr), .enablew(enablew), .clk(clk), .dataout(dataout), .sw(sw));
     
     initial begin
-    dataw = 16'hC3A7; addr = 0; enablew = 0;
+    dataw = 16'hC3A7; addr = 0; enablew = 0; sw = 16'hBEEF;
     #10
     enablew = 1;
     #10
@@ -29,6 +30,12 @@ module data_mem_tb();
     enablew = 0;
     #10
     addr = 0;
+    #10
+    addr = 16'h0100; enablew = 0;
+    #10
+    enablew = 1; dataw = 16'hDEAD;
+    #10
+    addr = 0; enablew = 0; 
     #10
     $finish;
     end

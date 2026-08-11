@@ -4,6 +4,7 @@
 module cpu_top(
         input wire clk,
         input wire rst,
+        input wire [15:0] sw,
         output wire [15:0] regd
     );
     
@@ -59,6 +60,6 @@ module cpu_top(
     register_file d0(.addr1(instr[8:6]), .addr2(addr2), .addrw(instr[11:9]), .enablew(regwrite), .clk(clk), .rst(rst), .out1(out1), .out2(out2), .dataw(dataw));
     sign_extend e0(.in(instr[5:0]), .out(out));
     alu f0(.a(out1), .b(b), .op(op), .result(result), .zero(zero), .lt(lt));
-    data_mem g0(.dataw(out2), .addr(result), .enablew(memwrite), .clk(clk), .dataout(dataout));
+    data_mem g0(.dataw(out2), .addr(result), .enablew(memwrite), .clk(clk), .dataout(dataout), .sw(sw));
     
 endmodule

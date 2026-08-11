@@ -1,5 +1,8 @@
-120A  // li r1 lo A
+1901  // li r4, hi, 1
+3300  // lw r1, 0(r4)
 26C1  // addi r3 r3 1
 0498  // r r2 r2 r3 add
 62FE  // bne r3 r1 -2
-8004  // j 4
+8005  // j 5
+
+
