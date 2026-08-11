@@ -3,6 +3,7 @@
 module pc_tb();
     reg clk = 0;
     reg rst;
+    reg ce;
     reg [15:0] offset;
     reg [11:0] jaddr;
     reg [1:0] pcsel;
@@ -10,10 +11,10 @@ module pc_tb();
     
     always #5 clk = ~clk;
     
-    pc dut(.clk(clk), .rst(rst), .offset(offset), .jaddr(jaddr), .pcsel(pcsel), .pcout(pcout));
+    pc dut(.clk(clk), .rst(rst), .offset(offset), .jaddr(jaddr), .pcsel(pcsel), .pcout(pcout), .ce(ce));
     
     initial begin
-    rst = 1; offset = 0; pcsel = 0; jaddr = 0;
+    rst = 1; offset = 0; pcsel = 0; jaddr = 0; ce = 1;
     #10
     rst = 0;
     #50

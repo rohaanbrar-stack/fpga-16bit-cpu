@@ -7,6 +7,7 @@ module register_file(
         input wire enablew,
         input wire clk,
         input wire rst,
+        input wire ce,
         input wire [15:0] dataw,
         output wire [15:0] out1,
         output wire [15:0] out2
@@ -20,7 +21,9 @@ module register_file(
     
     always @(posedge clk) begin
         if(rst) for(i = 0; i < 8; i = i + 1) regs[i] <= 16'h0000;
-        else if(enablew) regs[addrw] <= dataw;
+        else if(ce) begin
+            if(enablew) regs[addrw] <= dataw;
+        end
     end
     
 endmodule

@@ -9,21 +9,21 @@ module cpu_top_tb();
     
     always #5 clk = ~clk;
     
-    cpu_top dut(.clk(clk), .rst(rst), .regd(regd), .sw(sw));
+    cpu_top #(.DIV(3)) dut(.clk(clk), .rst(rst), .regd(regd), .sw(sw));
     
     initial begin
         rst = 1; sw = 16'h0000;
         #20
         rst = 0; sw = 16'h000A;
-        #400
+        #2000
         rst = 1; sw = 16'h0000;
         #20
         rst = 0; sw = 16'h0005;
-        #300
+        #2000
         rst = 1; sw = 16'h0000;
         #20
         rst = 0; sw = 16'h0003;
-        #200
+        #2000
         $finish;
     end
 endmodule

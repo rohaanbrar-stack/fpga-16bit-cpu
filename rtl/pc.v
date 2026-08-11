@@ -3,6 +3,7 @@
 module pc(
         input wire clk,
         input wire rst,
+        input wire ce,
         input wire [15:0] offset,
         input wire [11:0] jaddr,
         input wire [1:0] pcsel,
@@ -18,8 +19,10 @@ module pc(
         if(rst) begin
             pcout <= 0;
         end
-        else if(pcsel == 2'b00) pcout <= pcin;
-        else if(pcsel == 2'b01) pcout <= pcoff;
-        else if(pcsel == 2'b10) pcout <= {4'b0000 ,jaddr};
+        else if(ce) begin
+            if(pcsel == 2'b00) pcout <= pcin;
+            else if(pcsel == 2'b01) pcout <= pcoff;
+            else if(pcsel == 2'b10) pcout <= {4'b0000 ,jaddr};
+        end
     end
 endmodule

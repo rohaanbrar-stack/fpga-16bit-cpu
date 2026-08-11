@@ -7,16 +7,17 @@ module register_file_tb();
     reg enablew;
     reg clk = 0;
     reg rst;
+    reg ce;
     reg [15:0] dataw;
     wire [15:0] out1;
     wire [15:0] out2;
     
     always #5 clk = ~clk;
     
-    register_file dut(.addr1(addr1), .addr2(addr2), .addrw(addrw), .enablew(enablew), .clk(clk), .rst(rst), .dataw(dataw), .out1(out1), .out2(out2));
+    register_file dut(.addr1(addr1), .addr2(addr2), .addrw(addrw), .enablew(enablew), .clk(clk), .rst(rst), .dataw(dataw), .out1(out1), .out2(out2), .ce(ce));
     
     initial begin
-        addr1 = 3'b000; addr2 = 3'b001; addrw = 3'b111; enablew = 1'b1; rst = 1'b0; dataw = 16'hFFF8;
+        addr1 = 3'b000; addr2 = 3'b001; addrw = 3'b111; enablew = 1'b1; rst = 1'b0; dataw = 16'hFFF8; ce = 1;
         #10
         addrw = 3'b110; dataw = 16'hC3A7;
         #10
