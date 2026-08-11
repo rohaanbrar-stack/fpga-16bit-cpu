@@ -10,7 +10,8 @@ module register_file(
         input wire ce,
         input wire [15:0] dataw,
         output wire [15:0] out1,
-        output wire [15:0] out2
+        output wire [15:0] out2,
+        output wire [15:0] r2out
     );
     
     reg [15:0] regs [0:7];
@@ -18,6 +19,7 @@ module register_file(
     
     assign out1 = regs[addr1];
     assign out2 = regs[addr2];
+    assign r2out = regs[2];
     
     always @(posedge clk) begin
         if(rst) for(i = 0; i < 8; i = i + 1) regs[i] <= 16'h0000;

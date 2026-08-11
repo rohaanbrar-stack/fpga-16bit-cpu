@@ -5,7 +5,8 @@ module cpu_top #(parameter DIV = 25000000) (
         input wire clk,
         input wire rst,
         input wire [15:0] sw,
-        output wire [15:0] regd
+        output wire [15:0] regd,
+        output wire [15:0] r2
     );
     
     wire [15:0] pcout;
@@ -59,7 +60,7 @@ module cpu_top #(parameter DIV = 25000000) (
     pc a0(.clk(clk), .rst(rst), .pcsel(pcsel), .pcout(pcout), .offset(out), .jaddr(instr[11:0]), .ce(ce));
     instruction_mem b0(.addr(pcout[7:0]), .instr(instr));
     control c0(.opcode(instr[15:12]), .aluop(aluop), .aluopsel(aluopsel), .alubsel(alubsel), .wbsel(wbsel), .addr2sel(addr2sel), .branchtype(branchtype), .jump(jump), .regwrite(regwrite), .memwrite(memwrite));
-    register_file d0(.addr1(instr[8:6]), .addr2(addr2), .addrw(instr[11:9]), .enablew(regwrite), .clk(clk), .rst(rst), .out1(out1), .out2(out2), .dataw(dataw), .ce(ce));
+    register_file d0(.addr1(instr[8:6]), .addr2(addr2), .addrw(instr[11:9]), .enablew(regwrite), .clk(clk), .rst(rst), .out1(out1), .out2(out2), .dataw(dataw), .ce(ce), .r2out(r2));
     sign_extend e0(.in(instr[5:0]), .out(out));
     alu f0(.a(out1), .b(b), .op(op), .result(result), .zero(zero), .lt(lt));
     data_mem g0(.dataw(out2), .addr(result), .enablew(memwrite), .clk(clk), .dataout(dataout), .sw(sw));
