@@ -2,6 +2,10 @@
 
 ![HDL](https://img.shields.io/badge/HDL-Verilog-blue) ![Board](https://img.shields.io/badge/board-Basys%203-green) ![FPGA](https://img.shields.io/badge/FPGA-Artix--7-red)
 
+<p align="center">
+  <img src="assets/fpga_cpu.gif" width="390"/>
+</p>
+
 A 16-bit CPU designed and built from scratch on a Digilent Basys 3. Custom instruction set, hand-drawn datapath, single-cycle, plain Verilog with no IP cores. It runs programs written in its own assembly, takes input from the switches, shows results on the 7-segment display, and reports them over the USB-UART. Not a softcore port and not a RISC-V implementation — the point was designing the architecture, not transcribing someone else's spec.
 
 ---
