@@ -14,7 +14,7 @@ Learning FPGA design from zero, one rung at a time. Every phase has a gate that 
 - ~20,800 LUTs, ~41,600 flip-flops, 1.8 Mb block RAM
 - 100 MHz onboard oscillator
 - 16 switches, 16 LEDs, 4-digit 7-segment, 5 buttons
-- Built-in USB-UART bridge — the output path once programs are running
+- Built-in USB-UART bridge — the output path for running programs
 - Vivado ML Standard, Verilog
 
 ## Status
@@ -24,7 +24,7 @@ Learning FPGA design from zero, one rung at a time. Every phase has a gate that 
 - Phase 2 — ISA + datapath on paper, no RTL ✅ (2026-08-02 — 16 instructions, datapath drawn)
 - Phase 3 — Datapath blocks, each with its own testbench ✅ (2026-08-06 — six blocks, six testbenches)
 - Phase 4 — Control unit + single-cycle integration ✅ (2026-08-09 — CPU runs programs in simulation)
-- Phase 5 — On-hardware bring-up, state observable over UART ⬜
+- Phase 5 — On-hardware bring-up, state observable over UART ✅ (2026-08-14 — running on fabric, result on display and serial)
 - Phase 6 — Python assembler, demo program ⬜
 
 Locked so far: single-cycle before anything else (pipelining is explicitly out of scope for now), Harvard memory model, 8 registers, 16 instructions across four formats.
@@ -65,6 +65,14 @@ The decoder, a top-level module wiring all seven blocks and four muxes, and four
 The synthesis check was worth nothing for most of a day. It asks for zero inferred latches, and a top module whose outputs go nowhere synthesizes to nothing at all — zero LUTs, zero flip-flops, therefore zero latches, reported as a clean pass on an empty design. The fix is to expose a signal sitting downstream of everything, so the machine has to exist in order to produce it. Even then the count came back at 51 flip-flops against a hand-derived 144, because the program is baked into the ROM at synthesis time and the tools constant-fold straight through it — nothing in that program writes data memory, so the entire 256-word array was deleted.
 
 The last test program wrote the project's theme one more time. The first version of the sum loop ran until the running total reached 55 and then stopped, which makes the answer the exit condition: a broken adder could only ever have caused a hang, never a wrong number. Exiting on the loop counter instead leaves the total free to be wrong.
+
+## Phase 5 — On Hardware
+
+The CPU running on fabric: `N` comes off the switches, the running sum climbs across the 7-segment display, and each new value goes out the USB-UART. N = 10 / 5 / 3 returns `0037` / `000F` / `0006`, matching the simulator on every intermediate value.
+
+That switch input exists because of a warning that turned out to be wrong. The program is baked into the ROM, so the tools can constant-fold straight through the machine, and the concern was a board that lights up correctly with no CPU behind it. A control run settled it — the same design with the input replaced by a literal came back 163 LUTs against 174, with identical flip-flop counts, so Vivado had never folded this datapath. The input stayed anyway, on a better argument: with a fixed program, nothing visible on the board distinguishes a working CPU from a hardwired constant.
+
+Two bugs here could not have failed in simulation. Data memory indexed a 256-word array with the full 16-bit address, which Verilog quietly discards in simulation and quietly aliases on hardware. And the UART sends on change, comparing the result against a register that powers up as `x` — `x != x` evaluates to `x`, which an `if` treats as false, so a spurious startup transmission was impossible in the simulator and guaranteed on real fabric. The project's theme, one layer down: a test that can't fail is worse than no test, and simulation is itself a test.
 
 ## Repo Structure
 
