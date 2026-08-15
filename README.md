@@ -2,20 +2,132 @@
 
 ![HDL](https://img.shields.io/badge/HDL-Verilog-blue) ![Board](https://img.shields.io/badge/board-Basys%203-green) ![FPGA](https://img.shields.io/badge/FPGA-Artix--7-red)
 
-A 16-bit CPU designed and built from scratch on a Digilent Basys 3 — custom instruction set, hand-drawn datapath, single-cycle, written in plain Verilog. Not a softcore port and not a RISC-V implementation: the point is designing the architecture, not transcribing someone else's spec.
+A 16-bit CPU designed and built from scratch on a Digilent Basys 3. Custom instruction set, hand-drawn datapath, single-cycle, plain Verilog with no IP cores. It runs programs written in its own assembly, takes input from the switches, shows results on the 7-segment display, and reports them over the USB-UART. Not a softcore port and not a RISC-V implementation — the point was designing the architecture, not transcribing someone else's spec.
 
-## Approach
+---
 
-Learning FPGA design from zero, one rung at a time. Every phase has a gate that has to pass before the next one starts — the toolchain gets proven with a blinking LED before any logic is designed, blocks get simulated before they're synthesized, and the instruction set gets written on paper before any RTL exists. Nothing is built on an unproven layer.
+## Features
+
+- 16-bit ISA designed from the bit budget up: 8 registers, 4 instruction formats, 16 instructions across 9 opcode patterns (7 still free)
+- Single-cycle execution — every instruction completes in one tick, no pipeline, no hazards, no delay slots
+- Harvard memory: 256-word instruction ROM, 256-word data RAM
+- 16-bit ALU with `add sub and or xor not shl shr`, plus zero and signed less-than flags
+- Signed comparison stays correct across subtraction overflow without an overflow flag
+- Runtime operand from the 16 slide switches, so the result depends on something that doesn't exist at synthesis time
+- 4-digit 7-segment driver with time-multiplexed anodes, showing the live register value in hex
+- UART transmitter written from scratch — 9600 8-N-1, shift-register framing, sends only when the value changes
+- Two-pass Python assembler: labels, PC-relative branch resolution, 5 pseudo-instructions, 22 self-tests including 6 rejection cases
+- Every RTL block simulated against a hand-written expected-value table before it was allowed near synthesis
+
+---
 
 ## Hardware
 
-- Digilent Basys 3 — Xilinx Artix-7 XC7A35T-1CPG236C
-- ~20,800 LUTs, ~41,600 flip-flops, 1.8 Mb block RAM
-- 100 MHz onboard oscillator
-- 16 switches, 16 LEDs, 4-digit 7-segment, 5 buttons
-- Built-in USB-UART bridge — the output path for running programs
-- Vivado ML Standard, Verilog
+Digilent Basys 3 — Xilinx Artix-7 XC7A35T-1CPG236C, ~20,800 LUTs, ~41,600 flip-flops, 1.8 Mb block RAM, 100 MHz oscillator.
+
+| Function | Board resource | Pins |
+|---|---|---|
+| Clock | 100 MHz oscillator | W5 |
+| Reset | Center button | U18 |
+| Program input | Switches SW0–SW15 | V17…R2 |
+| Writeback bus | LEDs LD0–LD15 | U16…L1 |
+| Result display | 4-digit 7-segment, cathodes + anodes | W7…U7, U2…W4 |
+| Serial output | USB-UART bridge (`RsTx`) | A18 |
+
+The single micro-USB connector carries both the JTAG programming interface and the UART bridge, so the board needs one cable for everything.
+
+---
+
+## Instruction Set
+
+Four formats. Field positions are shared wherever possible — `rd` is always at `[11:9]` and `rs` always at `[8:6]`, which is what lets the register file's address ports skip their multiplexers entirely.
+
+```
+        15  12 11   9 8    6 5    3 2    0
+  R:   | op   | rd   | rs   | rt   |funct |
+  I:   | op   | rd   | rs   |    imm6     |
+ LI:   | op   | rd   |sel|      imm8      |
+  J:   | op   |            addr12         |
+```
+
+| Opcode | Instruction | Format | Notes |
+|---|---|---|---|
+| `0000` | `add sub and or xor not shl shr` | R | `funct[2:0]` picks the operation |
+| `0001` | `li rd, hi\|lo, imm8` | LI | writes one byte, preserves the other |
+| `0010` | `addi rd, rs, imm6` | I | imm6 sign-extended, −32..+31 |
+| `0011` | `lw rd, imm6(rs)` | I | |
+| `0100` | `sw rd, imm6(rs)` | I | `rd` is the source here |
+| `0101` | `beq rA, rB, off` | I | |
+| `0110` | `bne rA, rB, off` | I | |
+| `0111` | `blt rA, rB, off` | I | signed |
+| `1000` | `j addr12` | J | absolute |
+
+Branch target is `PC + offset`, where `PC` is the branch's own address — offset 0 branches to itself. Shift amounts come from a register, not an immediate. Data RAM has no reset, so nothing can assume zeroed memory.
+
+The assembler also provides `mov`, `nop`, `neg`, `li16`, and `bgt`, all of which expand to real instructions rather than adding hardware. `bgt` is free because it just swaps two operands into `blt`.
+
+---
+
+## Datapath
+
+<p align="center">
+  <img src="docs/CPU_Architecture.png" width="700"/>
+</p>
+
+Seven blocks and five multiplexers. Every mux lives in the top-level module rather than inside a submodule, so the diagram above stays literally true to the RTL — burying one inside the decoder would have made the drawing quietly wrong.
+
+---
+
+## How It Works
+
+Instruction memory is a 256-word ROM loaded from `imem.mem` at synthesis. Each tick, the PC indexes it, the decoder turns the top 4 bits into 13 control bits, the register file reads two operands from fixed instruction fields, and the ALU computes a result that either writes back, addresses data memory, or feeds the branch comparison. The PC then takes the increment, a branch target, or a jump address depending on `pcsel`.
+
+Everything runs off the 100 MHz oscillator, but the state-holding blocks only advance on a clock enable generated by a divider, which slows execution to 4 Hz so a human can watch the display climb. The UART and 7-segment driver run at full clock speed underneath that.
+
+Programs read `N` from the switches with `li r4, hi, 1` followed by `lw r1, 0(r4)`, which is a memory-mapped read rather than real RAM. That matters more than it looks: with a fixed program baked into the ROM, nothing you can see on the board distinguishes a working CPU from a hardwired constant. The switch input is what makes the result provably computed.
+
+---
+
+## Assembler
+
+`tools/asm.py` turns assembly into the ROM image. Two passes — the first records where every label lands, the second encodes with them resolved.
+
+```bash
+python tools/asm.py programs/myprog.asm        # writes programs/imem.mem
+python tools/asm.py --test                     # 22 encoding and rejection tests
+```
+
+```
+        li16 r1, 0x0005      ; pseudo-instructions expand to real ones
+        neg  r2, r1          ; two words each
+        mov  r3, r1
+loop:   addi r3, r3, 1       ; labels become PC-relative offsets
+        bgt  r3, r2, loop
+done:   j    done            ; ...and absolute addresses for jumps
+```
+
+Out-of-range immediates, malformed operands and unknown mnemonics are rejected with the line number and the correct syntax, rather than being truncated into a plausible-looking instruction.
+
+---
+
+## Quick Start
+
+**Requirements:** Vivado ML Standard, a Basys 3, Python 3, and a serial terminal.
+
+1. Clone the repo and open `constraints/cpu.xdc` and the `rtl/` sources in a new Vivado project. Set `basys_top` as the top module.
+2. Assemble a program: `python tools/asm.py programs/sum.asm`
+3. Reset Behavioral Simulation, then run `cpu_top_tb` and check the register file in the waveform. The reset matters — without it Vivado reuses an elaborated snapshot and silently simulates the previous program.
+4. Synthesis → Implementation → Generate Bitstream. The ROM is baked in by `$readmemh`, so a new program means a full rebuild, not just re-programming the board.
+5. Program the device. Set the switches to pick `N`.
+6. The running sum appears on the 7-segment display. Open the COM port at 9600-8-N-1 to see the same values stream out, one line per change.
+
+---
+
+## Design Notes
+
+Designing the instruction set was the first real challenge — 16 bits doesn't leave much room, so most of the ISA fell out of the bit budget rather than being chosen. After that, the hard part wasn't writing Verilog, it was trusting it. Almost none of the bugs on this project were wrong logic; they were tests that couldn't fail. A testbench with half its signals unconnected, a synthesis check that passed cleanly on an empty design, a memory test that wrote one address and never came back — all of them green, none of them checking anything. The habit that fixed it was writing out every expected value by hand before running the simulation, which is slower and caught things a waveform glance never would. The last category only turned up on the board: a register powering up as `x` behaves one way in the simulator and another way in real fabric, which is a reminder that simulation is itself a test and can fail to fail.
+
+---
 
 ## Status
 
@@ -25,84 +137,11 @@ Learning FPGA design from zero, one rung at a time. Every phase has a gate that 
 - Phase 3 — Datapath blocks, each with its own testbench ✅ (2026-08-06 — six blocks, six testbenches)
 - Phase 4 — Control unit + single-cycle integration ✅ (2026-08-09 — CPU runs programs in simulation)
 - Phase 5 — On-hardware bring-up, state observable over UART ✅ (2026-08-14 — running on fabric, result on display and serial)
-- Phase 6 — Python assembler, demo program ⬜
+- Phase 6 — Assembler ✅ (2026-08-14) · demo GIF and extra programs ⬜
 
-Locked so far: single-cycle before anything else (pipelining is explicitly out of scope for now), Harvard memory model, 8 registers, 16 instructions across four formats.
+Locked in: single-cycle before anything else, Harvard memory, 8 registers, 16 instructions across four formats. Pipelining is deliberately out of scope. `jal` and `jr` are the two instructions worth adding next — they're the only free opcodes that change what a compiler could express, since without them there are no functions and no recursion.
 
-## Phase 1 — Simulation
-
-A 2:1 mux, an 8-bit register, a 2→4 decoder, and an 8-bit ALU, each testbenched and read in the waveform viewer before anything reached the board.
-
-Choosing test operands turned out to be the real skill. Driving the ALU with `a=08, b=08` makes AND and OR return the same value; fix that with `a=08, b=04` and `a+b` collides with `a|b` instead, because operands sharing no bits generate no carries. A testbench that can't tell a right answer from a wrong one passes either way — which became the theme of the whole project.
-
-## Phase 2 — Instruction Set
-
-Sixteen bits doesn't leave much room, so most of the ISA decided itself. Sixteen registers would need 4-bit fields three times over, leaving exactly 16 opcodes — full before a single instruction is named — so 8 registers. Opcode width was the real corner: five bits shrinks the immediate to ±16, three bits allows only 8 instructions, and neither works. But an R-type uses only 13 of its 16 bits, so three sit idle on every arithmetic instruction. Handing those three the job of picking *which* ALU operation puts all eight under one opcode, freeing 15 patterns and keeping the wide immediate. It's MIPS's funct field; I got there by staring at the unused bits.
-
-```
-R:  op(4)  rd(3)  rs(3)  rt(3)  funct(3)     add sub and or xor not shl shr
-I:  op(4)  rd(3)  rs(3)  imm(6)              addi lw sw beq bne blt
-J:  op(4)  addr(12)                          j
-LI: op(4)  rd(3)  sel(1) imm8(8)             li
-```
-
-![Datapath](docs/CPU_Architecture.png)
-
-Drawing the datapath is what audits the encoding. `rd` and `rs` sit at the same bits in every format that uses them, so those wires run straight to the register file — two muxes that never had to be built. The five left over are the control unit's entire job, and one of them I missed on the first pass: wiring `funct` straight to the ALU works until an instruction has no funct field, and then `addi r1, r2, 5` leaves the immediate's low bits on those wires and the CPU quietly executes whatever the constant spells. There is no default in hardware.
-
-## Phase 3 — Datapath Blocks
-
-Six blocks in `rtl/` with a testbench each in `tb/` — ALU, sign extender, register file, PC, instruction memory, data memory. No top-level module yet; that's Phase 4.
-
-Verilog doesn't reject a width mistake, it truncates. Writing the ALU's case labels as `2'b000` through `2'b111` — a 2-bit size on 3-bit values — collapsed eight cases onto four, leaving xor, not and both shifts unreachable. Half the ALU was dead, and it elaborated with no error and no warning.
-
-The habit that caught the rest was predicting every waveform value before running the simulation. Two finds justify it: the PC's adders were written inside the clocked block, which stores instead of computes, so the PC would have advanced once every two clocks and run every instruction twice — and the first data-memory testbench wrote one address, moved on, and never came back, meaning a memory with no address decoding at all would have passed it.
-
-## Phase 4 — Control Unit + Integration
-
-The decoder, a top-level module wiring all seven blocks and four muxes, and four hand-assembled test programs — arithmetic, memory, control flow, and a sum loop. `cpu_top` holds no state and makes no decisions; every `reg` in the finished design sits inside a block that was gated on its own.
-
-The synthesis check was worth nothing for most of a day. It asks for zero inferred latches, and a top module whose outputs go nowhere synthesizes to nothing at all — zero LUTs, zero flip-flops, therefore zero latches, reported as a clean pass on an empty design. The fix is to expose a signal sitting downstream of everything, so the machine has to exist in order to produce it. Even then the count came back at 51 flip-flops against a hand-derived 144, because the program is baked into the ROM at synthesis time and the tools constant-fold straight through it — nothing in that program writes data memory, so the entire 256-word array was deleted.
-
-The last test program wrote the project's theme one more time. The first version of the sum loop ran until the running total reached 55 and then stopped, which makes the answer the exit condition: a broken adder could only ever have caused a hang, never a wrong number. Exiting on the loop counter instead leaves the total free to be wrong.
-
-## Phase 5 — On Hardware
-
-The CPU running on fabric: `N` comes off the switches, the running sum climbs across the 7-segment display, and each new value goes out the USB-UART. N = 10 / 5 / 3 returns `0037` / `000F` / `0006`, matching the simulator on every intermediate value.
-
-That switch input exists because of a warning that turned out to be wrong. The program is baked into the ROM, so the tools can constant-fold straight through the machine, and the concern was a board that lights up correctly with no CPU behind it. A control run settled it — the same design with the input replaced by a literal came back 163 LUTs against 174, with identical flip-flop counts, so Vivado had never folded this datapath. The input stayed anyway, on a better argument: with a fixed program, nothing visible on the board distinguishes a working CPU from a hardwired constant.
-
-Two bugs here could not have failed in simulation. Data memory indexed a 256-word array with the full 16-bit address, which Verilog quietly discards in simulation and quietly aliases on hardware. And the UART sends on change, comparing the result against a register that powers up as `x` — `x != x` evaluates to `x`, which an `if` treats as false, so a spurious startup transmission was impossible in the simulator and guaranteed on real fabric. The project's theme, one layer down: a test that can't fail is worse than no test, and simulation is itself a test.
-
-## Writing and Running a Program
-
-Programs are written in assembly and turned into the ROM image by `tools/asm.py`.
-
-```bash
-# 1. write programs/myprog.asm
-# 2. assemble (defaults to programs/imem.mem, which is what the CPU reads)
-python tools/asm.py programs/myprog.asm
-
-# 3. check the assembler itself still passes
-python tools/asm.py --test
-```
-
-Then in Vivado:
-
-4. **Reset Behavioral Simulation**, then Run Simulation. The reset matters — without it Vivado reuses an elaborated snapshot and silently simulates the *previous* program, which looks like a normal passing run.
-5. Synthesis → Implementation → **Generate Bitstream**. The ROM is baked in at synthesis by `$readmemh`, so a new program needs a full rebuild, not just re-programming the board.
-6. Program the device. Read the result on the 7-segment display, or over the USB-UART at 9600-8-N-1.
-
-The switches are readable from software — `li r4, hi, 1` then `lw r1, 0(r4)` puts the switch value in `r1`. That's how `sum.asm` takes its input, and it's what makes the result depend on something that only exists at runtime.
-
-```
-        li16 r1, 0x0005      ; pseudo-instructions expand to real ones
-        neg  r2, r1          ; r2 = -5
-        mov  r3, r1
-loop:   addi r3, r3, 1       ; labels resolve to PC-relative offsets
-        bgt  r3, r2, loop    ; ...and j resolves to an absolute address
-done:   j    done
-```
+---
 
 ## Repo Structure
 
@@ -110,15 +149,17 @@ done:   j    done
 fpga-16bit-cpu/
 ├── rtl/               # CPU source
 ├── tb/                # Testbenches
-├── tools/             # asm.py -- two-pass assembler, self-tested
+├── tools/             # asm.py — two-pass assembler, self-tested
 ├── programs/          # .asm sources; imem.mem is the generated ROM image
 ├── phase0-blink/      # First working bitstream
 ├── phase1-sim/        # Early HDL exercises
-├── constraints/       # Digilent Basys 3 master XDC
+├── constraints/       # Basys 3 XDC
 └── docs/              # Datapath diagram, ISA + port map data sheet
 ```
 
 Vivado project directories are gitignored — they're regenerated by synthesis and accounted for 98% of the Phase 0 project's size. Only sources and constraints are tracked.
+
+---
 
 ## Author
 
