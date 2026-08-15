@@ -74,13 +74,44 @@ That switch input exists because of a warning that turned out to be wrong. The p
 
 Two bugs here could not have failed in simulation. Data memory indexed a 256-word array with the full 16-bit address, which Verilog quietly discards in simulation and quietly aliases on hardware. And the UART sends on change, comparing the result against a register that powers up as `x` — `x != x` evaluates to `x`, which an `if` treats as false, so a spurious startup transmission was impossible in the simulator and guaranteed on real fabric. The project's theme, one layer down: a test that can't fail is worse than no test, and simulation is itself a test.
 
+## Writing and Running a Program
+
+Programs are written in assembly and turned into the ROM image by `tools/asm.py`.
+
+```bash
+# 1. write programs/myprog.asm
+# 2. assemble (defaults to programs/imem.mem, which is what the CPU reads)
+python tools/asm.py programs/myprog.asm
+
+# 3. check the assembler itself still passes
+python tools/asm.py --test
+```
+
+Then in Vivado:
+
+4. **Reset Behavioral Simulation**, then Run Simulation. The reset matters — without it Vivado reuses an elaborated snapshot and silently simulates the *previous* program, which looks like a normal passing run.
+5. Synthesis → Implementation → **Generate Bitstream**. The ROM is baked in at synthesis by `$readmemh`, so a new program needs a full rebuild, not just re-programming the board.
+6. Program the device. Read the result on the 7-segment display, or over the USB-UART at 9600-8-N-1.
+
+The switches are readable from software — `li r4, hi, 1` then `lw r1, 0(r4)` puts the switch value in `r1`. That's how `sum.asm` takes its input, and it's what makes the result depend on something that only exists at runtime.
+
+```
+        li16 r1, 0x0005      ; pseudo-instructions expand to real ones
+        neg  r2, r1          ; r2 = -5
+        mov  r3, r1
+loop:   addi r3, r3, 1       ; labels resolve to PC-relative offsets
+        bgt  r3, r2, loop    ; ...and j resolves to an absolute address
+done:   j    done
+```
+
 ## Repo Structure
 
 ```
 fpga-16bit-cpu/
 ├── rtl/               # CPU source
 ├── tb/                # Testbenches
-├── programs/          # Hand-assembled programs
+├── tools/             # asm.py -- two-pass assembler, self-tested
+├── programs/          # .asm sources; imem.mem is the generated ROM image
 ├── phase0-blink/      # First working bitstream
 ├── phase1-sim/        # Early HDL exercises
 ├── constraints/       # Digilent Basys 3 master XDC
